@@ -12,35 +12,33 @@ logger = logging.getLogger(__name__)
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 SOURCE_CHANNEL_ID = -100483873372772
 TARGET_CHANNEL_ID = -100578376883737
-GOFILE_API = "https://api.gofile.io/uploadFile"
 SHORTLINK_API = os.environ.get("SHORTLINK_API")
 SHORTLINK_URL = os.environ.get("SHORTLINK_URL")
 
+# Handler Function
 async def handle_channel_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.channel_post
     if not message:
         return
 
-    # Detect media
     media = message.document or message.video or message.audio or message.photo[-1]
-    file_name = getattr(media, 'file_name', 'file')
+    file_name = getattr(media, 'file_name', 'media_file')
 
-    # Download file from Telegram
     telegram_file = await media.get_file()
     local_path = await telegram_file.download_to_drive()
     logger.info(f"Downloaded: {local_path}")
 
-    # Upload to Gofile
+    # Upload to Gofile WITHOUT API Key
     with open(local_path, 'rb') as f:
         files = {'file': (file_name, f)}
-        res = requests.post(GOFILE_API, files=files)
+        res = requests.post("https://api.gofile.io/uploadFile", files=files)
         data = res.json()
 
     if data['status'] == 'ok':
         gofile_link = data['data']['downloadPage']
         logger.info(f"Gofile Link: {gofile_link}")
 
-        # Shortlink
+        # Shortlink if available
         try:
             short_res = requests.get(SHORTLINK_API + gofile_link)
             short_url = short_res.text.strip()
@@ -51,7 +49,6 @@ async def handle_channel_post(update: Update, context: ContextTypes.DEFAULT_TYPE
         caption = f"📁 <b>{file_name}</b>\n🔗 <a href='{short_url}'>Download Link</a>"
         thumb = local_path if message.photo or message.video else None
 
-        # Send to target channel
         await context.bot.send_photo(
             chat_id=TARGET_CHANNEL_ID,
             photo=thumb,
@@ -61,7 +58,7 @@ async def handle_channel_post(update: Update, context: ContextTypes.DEFAULT_TYPE
     else:
         logger.error("Gofile upload failed")
 
-# Optional web server to avoid Koyeb port error
+# Optional web server for Koyeb port fix
 import threading
 from fastapi import FastAPI
 import uvicorn
@@ -78,6 +75,7 @@ def start_web():
 
 threading.Thread(target=start_web).start()
 
+# Main Bot Start
 if __name__ == "__main__":
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(MessageHandler(filters.Chat(SOURCE_CHANNEL_ID) & filters.ALL, handle_channel_post))
